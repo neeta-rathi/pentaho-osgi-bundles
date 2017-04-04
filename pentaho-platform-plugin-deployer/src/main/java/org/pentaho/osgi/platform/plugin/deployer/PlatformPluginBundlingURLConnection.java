@@ -33,6 +33,8 @@ import java.io.PipedOutputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -49,6 +51,7 @@ public class PlatformPluginBundlingURLConnection extends URLConnection {
   public static final int TEN_MEGABYTES = 10 * 1024 * 1024;
   private static final Pattern maxSizePattern = Pattern.compile( "maxSize=([0-9]+)" );
   private final List<PluginFileHandler> pluginFileHandlers;
+  private static ConcurrentHashMap<String,String> pluginMap = new ConcurrentHashMap<>( 3 );
 
   private static ExecutorService executorService = Executors.newSingleThreadExecutor( new ThreadFactory() {
     @Override
@@ -105,14 +108,20 @@ public class PlatformPluginBundlingURLConnection extends URLConnection {
       nameVersion = DeployerUtils.extractNameVersionType( mvnPath );
     }
 
+    boolean hasPluginProcessedBefore = pluginMap.containsValue( path );
+    if ( !hasPluginProcessedBefore ) {
+      pluginMap.put( path, path );
+    }
+
     final PipedOutputStream pipedOutputStream = new PipedOutputStream( pipedInputStream );
     final ZipOutputStream zipOutputStream = new ZipOutputStream( pipedOutputStream );
     URLConnection connection = getURL().openConnection();
     InputStream connectionInputStream = connection.getInputStream();
     ZipInputStream zipInputStream = new ZipInputStream( connectionInputStream );
     final PluginZipFileProcessor pluginZipFileProcessor =
-        new PluginZipFileProcessor( pluginFileHandlers, nameVersion[ 0 ], nameVersion[ 0 ], nameVersion[ 1 ] );
-    pluginZipFileProcessor.processBackground( executorService, zipInputStream, zipOutputStream,
+      new PluginZipFileProcessor( pluginFileHandlers, hasPluginProcessedBefore, nameVersion[ 0 ],
+        nameVersion[ 0 ], nameVersion[ 1 ] );
+     pluginZipFileProcessor.processBackground( executorService, zipInputStream, zipOutputStream,
         pipedInputStream );
     return pipedInputStream;
   }

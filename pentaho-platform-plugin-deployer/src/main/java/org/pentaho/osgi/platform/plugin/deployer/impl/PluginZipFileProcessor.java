@@ -65,13 +65,15 @@ public class PluginZipFileProcessor {
   private final String name;
   private final String symbolicName;
   private final String version;
+  private boolean hasPluginProcessedBefore;
 
-  public PluginZipFileProcessor( List<PluginFileHandler> pluginFileHandlers, String name, String symbolicName,
+  public PluginZipFileProcessor( List<PluginFileHandler> pluginFileHandlers, boolean hasPluginProcessedBefore, String name, String symbolicName,
                                  String version ) {
     this.pluginFileHandlers = pluginFileHandlers;
     this.name = name;
     this.symbolicName = symbolicName;
     this.version = version;
+    this.hasPluginProcessedBefore = hasPluginProcessedBefore;
   }
 
   public Future<Void> processBackground( ExecutorService executorService, final ZipInputStream zipInputStream,
@@ -80,7 +82,11 @@ public class PluginZipFileProcessor {
     return executorService.submit( new Callable<Void>() {
       @Override public Void call() throws Exception {
         try {
-          process( zipInputStream, zipOutputStream );
+          if ( hasPluginProcessedBefore ) {
+            processManifest( zipInputStream, zipOutputStream );
+          } else {
+            process( zipInputStream, zipOutputStream );
+          }
         } catch ( IOException e ) {
           exceptionSettable.setException( e );
         }
@@ -89,7 +95,45 @@ public class PluginZipFileProcessor {
     } );
   }
 
+  public void processManifest( ZipInputStream zipInputStream, ZipOutputStream zipOutputStream ) throws Exception {
+
+    File dir = Files.createTempDir();
+    PluginMetadata pluginMetadata = null;
+    try {
+      pluginMetadata = new PluginMetadataImpl( dir );
+    } catch ( ParserConfigurationException e ) {
+      throw new IOException( e );
+    }
+
+    Manifest manifest = null;
+
+    try {
+        Set<String> createdEntries = new HashSet<String>();
+
+        String manifestFolder = JarFile.MANIFEST_NAME.split( "/" )[ 0 ] + "/";
+        ZipEntry manifestFolderEntry = new ZipEntry( manifestFolder );
+        zipOutputStream.putNextEntry( manifestFolderEntry );
+        zipOutputStream.closeEntry();
+        createdEntries.add( manifestFolder );
+
+        ZipEntry manifestEntry = new ZipEntry( JarFile.MANIFEST_NAME );
+        zipOutputStream.putNextEntry( manifestEntry );
+        pluginMetadata.getManifestUpdater()
+          .write( manifest, zipOutputStream, name, symbolicName, version );
+        zipOutputStream.closeEntry();
+
+        zipOutputStream.flush();
+
+        zipOutputStream.close();
+
+    } catch ( IOException ioexception ) {
+        throw ioexception;
+    }
+  }
+
+
   public void process( ZipInputStream zipInputStream, ZipOutputStream zipOutputStream ) throws IOException {
+
     File dir = Files.createTempDir();
     PluginMetadata pluginMetadata = null;
     try {
